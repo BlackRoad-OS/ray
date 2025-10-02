@@ -8,6 +8,7 @@ across Ray tasks for scalable incremental data processing.
 from typing import Dict, List, Optional
 
 import pyarrow as pa
+
 import ray
 
 
@@ -90,8 +91,8 @@ def read_delta_cdf_distributed(
         storage_opts: Optional[Dict[str, str]],
     ):
         """Read CDF for a specific version range in a Ray task."""
-        from deltalake import DeltaTable
         import pyarrow as pa
+        from deltalake import DeltaTable
 
         # Create DeltaTable in this task
         dt_kwargs = {}

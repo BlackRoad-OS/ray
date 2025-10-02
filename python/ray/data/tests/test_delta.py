@@ -495,7 +495,7 @@ def test_merge_conditions(tmp_path):
     ds_update = ray.data.from_pandas(update_data)
 
     # Test with MergeConditions
-    conditions = MergeConditions(
+    conditions = MergeConditions(  # noqa: F405
         merge_predicate="target.id = source.id",
         when_matched_update_condition="target.status != 'inactive'",
         when_matched_update_set={"value": "source.value", "status": "source.status"},
@@ -532,48 +532,24 @@ def test_merge_conditions(tmp_path):
     assert id_to_row[4]["status"] == "new"
 
 
+@pytest.mark.skip(
+    reason="Table optimization removed - requires distributed implementation"
+)
 @pytest.mark.parametrize("optimization_type", ["compact", "z_order", "vacuum"])
-@pytest.mark.skip(reason="Merge/SCD/optimization functionality not included in v1")
 def test_standalone_utility_functions(tmp_path, optimization_type):
-    """Test standalone utility functions for Delta table optimization."""
-    import pandas as pd
-    from deltalake import write_deltalake
+    """Test standalone utility functions for Delta table optimization.
 
-    # Create a test Delta table
-    path = str(tmp_path / "optimization_test")
-    df = pd.DataFrame(
-        {
-            "id": range(100),
-            "value": range(100, 200),
-            "timestamp": [datetime.now() - timedelta(days=i) for i in range(100)],
-        }
-    )
-    write_deltalake(path, df, mode="overwrite")
+    Note: This test is skipped because table optimization (compact, z-order, vacuum)
+    has been removed from v1. These operations require distributed processing for
+    large-scale tables and cannot rely on single-node deltalake library calls.
 
-    # Add more data to create multiple files
-    df2 = pd.DataFrame(
-        {
-            "id": range(100, 200),
-            "value": range(200, 300),
-            "timestamp": [datetime.now() - timedelta(days=i) for i in range(100)],
-        }
-    )
-    write_deltalake(path, df2, mode="append")
-
-    # Test the appropriate function
-    if optimization_type == "compact":
-        compact_delta_table(path, target_file_size=1024 * 1024)  # 1MB target
-
-    elif optimization_type == "z_order":
-        z_order_delta_table(path, columns=["id"])
-
-    elif optimization_type == "vacuum":
-        # Make files older than retention period
-        vacuum_delta_table(path, retention_hours=0, dry_run=False)
-
-    # Verify table is still readable
-    ds = ray.data.read_delta(path)
-    assert ds.count() == 200
+    A future implementation should use Ray for distributed file compaction:
+    - Read files in parallel with Ray tasks
+    - Repartition and compact data using Ray Data
+    - Write compacted files back
+    - Update Delta transaction log atomically
+    """
+    pytest.skip("Table optimization removed - requires distributed implementation")
 
 
 @pytest.mark.skip(reason="Merge/SCD/optimization functionality not included in v1")
@@ -608,7 +584,7 @@ def test_merge_config_comprehensive(tmp_path):
     ds_update = ray.data.from_pandas(update_data)
 
     # Create comprehensive merge configuration
-    merge_config = MergeConfig(
+    merge_config = MergeConfig(  # noqa: F405
         merge_predicate="target.id = source.id",
         when_matched_update_condition="target.active = true",
         when_matched_delete_condition="source.value < 0",

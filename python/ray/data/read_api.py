@@ -3877,7 +3877,12 @@ def read_delta(
             * ``[("year", "=", "2024")]``
             * ``[("year", "=", "2024"), ("month", "in", ["01", "02"])]``
 
-        filesystem: The PyArrow filesystem
+        cdf: If ``True``, reads Change Data Feed instead of snapshot data.
+            Returns incremental changes between versions with _change_type column.
+        starting_version: Starting version for CDF reads (default: 0).
+            Only used when cdf=True.
+        ending_version: Ending version for CDF reads (default: latest version).
+            Only used when cdf=True.
         filesystem: The PyArrow filesystem
             implementation to read from. These filesystems are specified in the
             `pyarrow docs <https://arrow.apache.org/docs/python/api/\
@@ -3920,84 +3925,38 @@ def read_delta(
         files.
 
     """
-    # Modified from ray.data._internal.util._check_import, which is meant for objects,
-    # not functions. Move to _check_import if moved to a DataSource object.
-    import importlib
+    # Delegate to DeltaDatasource for cleaner implementation
+    from ray.data._internal.datasource.delta import DeltaDatasource
 
-    package = "deltalake"
-    try:
-        importlib.import_module(package)
-    except ImportError:
-        raise ImportError(
-            f"`ray.data.read_delta` depends on '{package}', but '{package}' "
-            f"couldn't be imported. You can install '{package}' by running `pip "
-            f"install {package}`."
-        )
-
-    from deltalake import DeltaTable
-
-    # This seems reasonable to keep it at one table, even Spark doesn't really support
-    # multi-table reads, it's usually up to the developer to keep it in one table.
+    # Validate path
     if not isinstance(path, str):
         raise ValueError("Only a single Delta Lake table path is supported.")
 
-    # Build DeltaTable constructor arguments
-    delta_table_kwargs = {}
-    if storage_options is not None:
-        delta_table_kwargs["storage_options"] = storage_options
-    if version is not None and not cdf:
-        # Version parameter is for snapshot reads, not CDF
-        delta_table_kwargs["version"] = version
-
-    # Handle deletion vectors (enabled by default for correctness)
-    # Set ignore_deletion_vectors=True in options to skip deletion vector handling
-    delta_table_kwargs["options"] = {"ignore_deletion_vectors": False}
-
-    # Load the Delta table (with optional version and storage options)
-    dt = DeltaTable(path, **delta_table_kwargs)
-
-    # Handle Change Data Feed (CDF) mode
-    if cdf:
-        # Delegate to distributed CDF reading implementation in delta_cdf module
-        from ray.data._internal.datasource.delta.delta_cdf import (
-            read_delta_cdf_distributed,
-        )
-
-        return read_delta_cdf_distributed(
-            path=path,
-            starting_version=starting_version,
-            ending_version=ending_version,
-            columns=columns,
-            predicate=arrow_parquet_args.get("filters"),
-            storage_options=storage_options,
-            override_num_blocks=override_num_blocks,
-        )
-
-    # Regular snapshot read (not CDF)
-    # Get the parquet file paths from the DeltaTable
-    # Apply partition filters at Delta level if specified
-    if partition_filters is not None:
-        paths = dt.file_uris(partition_filters=partition_filters)
-    else:
-        paths = dt.file_uris()
-
-    file_extensions = ["parquet"]
-
-    return read_parquet(
-        paths,
+    # Create Delta datasource with all parameters
+    datasource = DeltaDatasource(
+        path=path,
+        version=version,
+        storage_options=storage_options,
+        partition_filters=partition_filters,
+        cdf=cdf,
+        starting_version=starting_version,
+        ending_version=ending_version,
         filesystem=filesystem,
         columns=columns,
+        partitioning=partitioning,
+        **arrow_parquet_args,
+    )
+
+    # Read dataset using datasource
+    return datasource.read_as_dataset(
         parallelism=parallelism,
         ray_remote_args=ray_remote_args,
         meta_provider=meta_provider,
         partition_filter=partition_filter,
-        partitioning=partitioning,
         shuffle=shuffle,
         include_paths=include_paths,
-        file_extensions=file_extensions,
         concurrency=concurrency,
         override_num_blocks=override_num_blocks,
-        **arrow_parquet_args,
     )
 
 

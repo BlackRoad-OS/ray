@@ -1,8 +1,5 @@
 """
 Configuration classes and enums for Delta Lake datasource.
-
-This module contains configuration data classes and enums for Delta Lake
-write operations using two-phase commit for ACID compliance.
 """
 
 import json
@@ -15,31 +12,20 @@ from typing import Any, Dict, List, Optional
 
 class WriteMode(Enum):
     """Write modes for Delta Lake tables."""
-    # Error if the table already exists
+
     ERROR = "error"
-    # Append to the table if it exists
     APPEND = "append"
-    # Overwrite the table if it exists
     OVERWRITE = "overwrite"
-    # Ignore the write if the table already exists
     IGNORE = "ignore"
 
 
-
-
-
-
-
-
-
-
 class DeltaJSONEncoder(json.JSONEncoder):
+    """JSON encoder for Delta Lake data types."""
+
     def default(self, obj: Any) -> Any:
         if isinstance(obj, bytes):
             return obj.decode("unicode_escape", "backslashreplace")
-        elif isinstance(obj, date):
-            return obj.isoformat()
-        elif isinstance(obj, datetime):
+        elif isinstance(obj, (date, datetime)):
             return obj.isoformat()
         elif isinstance(obj, Decimal):
             return str(obj)
@@ -58,10 +44,10 @@ class DeltaWriteConfig:
     configuration: Optional[Dict[str, str]] = None
     custom_metadata: Optional[Dict[str, str]] = None
     target_file_size: Optional[int] = None
-    writer_properties: Optional[Any] = None  # deltalake.WriterProperties
-    post_commithook_properties: Optional[Any] = None  # deltalake.PostCommitHookProperties
-    commit_properties: Optional[Any] = None  # deltalake.CommitProperties
+    writer_properties: Optional[Any] = None
+    post_commithook_properties: Optional[Any] = None
+    commit_properties: Optional[Any] = None
     storage_options: Optional[Dict[str, str]] = None
     engine: str = "rust"
     overwrite_schema: bool = False
-    schema: Optional[Any] = None  # pyarrow.Schema
+    schema: Optional[Any] = None
