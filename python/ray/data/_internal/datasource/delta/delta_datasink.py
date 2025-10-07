@@ -171,7 +171,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
     def _partition_table(
         self, table: pa.Table, partition_cols: List[str]
     ) -> Dict[tuple, pa.Table]:
-        """Partition table by columns efficiently in a single pass."""
+        """Partition table by columns efficiently using vectorized operations."""
         import pyarrow.compute as pc
         from collections import defaultdict
 
@@ -185,17 +185,19 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
                 mask = pc.equal(table[col], val)
                 partitions[(val_py,)] = table.filter(mask)
         else:
-            # Multi-column: build partitions in single pass
-            # Group row indices by partition key
-            partition_indices = defaultdict(list)
+            # Multi-column: vectorized approach using to_pylist()
+            # Convert partition columns to Python lists once (vectorized)
+            partition_values_lists = [
+                table[col].to_pylist() for col in partition_cols
+            ]
             
-            for i in range(len(table)):
-                partition_tuple = tuple(table[col][i].as_py() for col in partition_cols)
+            # Group row indices by partition key using zip (vectorized)
+            partition_indices = defaultdict(list)
+            for i, partition_tuple in enumerate(zip(*partition_values_lists)):
                 partition_indices[partition_tuple].append(i)
             
-            # Create table slices for each partition
+            # Create table slices for each partition using take()
             for partition_tuple, indices in partition_indices.items():
-                # Use take() to select rows by index - more efficient than multiple filters
                 partitions[partition_tuple] = table.take(indices)
 
         return partitions
