@@ -7,7 +7,7 @@ import logging
 import os
 import time
 import uuid
-from typing import TYPE_CHECKING, Dict, Iterable, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional
 
 import pyarrow as pa
 import pyarrow.fs as pa_fs
@@ -24,6 +24,7 @@ from ray.data.block import Block, BlockAccessor
 from ray.data.datasource.datasink import Datasink, WriteResult
 
 if TYPE_CHECKING:
+    from deltalake import DeltaTable
     from deltalake.transaction import AddAction
 
 logger = logging.getLogger(__name__)
@@ -102,7 +103,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
                 f"Delta table already exists at {self.path}. "
                 f"Use mode='append' or 'overwrite'."
             )
-        
+
         # For IGNORE mode, skip write if table exists to prevent wasted computation
         # Note: This is handled by setting _skip_write flag that write() will check
         if self.mode == WriteMode.IGNORE and existing_table:
@@ -160,7 +161,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         # Skip write if table exists in IGNORE mode (checked in on_write_start)
         if self._skip_write:
             return []
-        
+
         _check_import(self, module="deltalake", package="deltalake")
 
         # Convert Ray Data blocks to PyArrow tables
@@ -222,9 +223,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
                 f"Check that partition_cols matches your data schema."
             )
 
-    def _write_table_data(
-        self, table: pa.Table, task_idx: int
-    ) -> List["AddAction"]:
+    def _write_table_data(self, table: pa.Table, task_idx: int) -> List["AddAction"]:
         """
         Write table data as partitioned or non-partitioned Parquet files.
 
@@ -283,8 +282,9 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
             >>> #   ("2024", "11"): Table with rows where year=2024, month=11
             >>> # }
         """
-        import pyarrow.compute as pc
         from collections import defaultdict
+
+        import pyarrow.compute as pc
 
         partitions = {}
 
@@ -293,14 +293,14 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
             # This avoids converting to Python and is faster for large tables
             col_name = partition_cols[0]
             unique_values = pc.unique(table[col_name])
-            
+
             for partition_value in unique_values:
                 # Convert to Python for dictionary key
                 partition_value_py = partition_value.as_py()
-                
+
                 # Create boolean mask for rows matching this partition value
                 row_mask = pc.equal(table[col_name], partition_value)
-                
+
                 # Filter table to get rows for this partition
                 # Store with tuple key for consistency with multi-column case
                 partitions[(partition_value_py,)] = table.filter(row_mask)
@@ -308,16 +308,14 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
             # Multi-column partitioning using vectorized operations
             # Convert all partition columns to Python lists in one pass
             # This is more efficient than processing row-by-row
-            partition_values_lists = [
-                table[col].to_pylist() for col in partition_cols
-            ]
-            
+            partition_values_lists = [table[col].to_pylist() for col in partition_cols]
+
             # Group row indices by partition key
             # zip(*lists) creates tuples of (col1_val, col2_val, ...) for each row
             partition_indices = defaultdict(list)
             for row_idx, partition_tuple in enumerate(zip(*partition_values_lists)):
                 partition_indices[partition_tuple].append(row_idx)
-            
+
             # Create table slices for each partition using take()
             # take() is efficient as it creates views without copying data when possible
             for partition_tuple, row_indices in partition_indices.items():
@@ -430,20 +428,20 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
 
         partition_path_components = []
         partition_dict = {}
-        
+
         for col_name, col_value in zip(self.partition_cols, partition_values):
             # Handle NULL partition values (represented as empty string in path)
             value_str = "" if col_value is None else str(col_value)
-            
+
             # Build Hive-style path component: column_name=value
             partition_path_components.append(f"{col_name}={value_str}")
-            
+
             # Store in dict for Delta metadata (NULL as None, others as strings)
             partition_dict[col_name] = None if col_value is None else str(col_value)
 
         # Join with / and add trailing slash
         partition_path = "/".join(partition_path_components) + "/"
-        
+
         return partition_path, partition_dict
 
     def _write_parquet_file(self, table: pa.Table, file_path: str) -> int:
@@ -502,7 +500,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         """
         if not self.partition_cols:
             return table
-        
+
         # Drop all partition columns in one call
         return table.drop(self.partition_cols)
 
@@ -558,7 +556,6 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
             >>> #   "nullCount": {"age": 0, "name": 5}
             >>> # }
         """
-        import pyarrow.compute as pc
 
         # Initialize statistics dictionary
         statistics = {"numRecords": len(table)}
@@ -569,7 +566,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         # Compute per-column statistics
         for col_name in table.column_names:
             column = table[col_name]
-            
+
             # Always compute null count (used for data skipping)
             null_counts[col_name] = column.null_count
 
@@ -611,29 +608,32 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
 
         try:
             col_type = column.type
-            
+
             # Numeric types: integer and floating point
             if pa.types.is_integer(col_type) or pa.types.is_floating(col_type):
                 min_val = pc.min(column).as_py()
                 max_val = pc.max(column).as_py()
                 return min_val, max_val
-            
+
             # String types: string and large_string
             elif pa.types.is_string(col_type) or pa.types.is_large_string(col_type):
                 min_val = pc.min(column).as_py()
                 max_val = pc.max(column).as_py()
                 # Ensure string representation for JSON serialization
-                return str(min_val) if min_val else None, str(max_val) if max_val else None
-            
+                return (
+                    str(min_val) if min_val else None,
+                    str(max_val) if max_val else None,
+                )
+
             # Unsupported type for min/max
             return None, None
-            
+
         except Exception:
             # Silently handle compute errors (e.g., unsupported operations)
             # The write should succeed even if statistics computation fails
             return None, None
 
-    def on_write_complete(self, write_result: WriteResult[List["AddAction"]]):
+    def on_write_complete(self, write_result: WriteResult[List["AddAction"]]) -> None:
         """
         Phase 2: Commit all files in single ACID transaction.
 
@@ -650,6 +650,9 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         Args:
             write_result: Aggregated results from all Ray tasks containing AddActions
 
+        Returns:
+            None
+
         Raises:
             ValueError: If ERROR mode and table was created during write (race condition)
 
@@ -663,7 +666,6 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
             3. on_write_complete(): Collects all AddActions, single commit
             4. Result: All files visible atomically in Delta table
         """
-        from deltalake.transaction import create_table_with_add_actions
 
         # Aggregate AddActions from all distributed tasks
         all_file_actions = self._collect_file_actions(write_result)
@@ -760,7 +762,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
                 f"the transaction log. Use mode='append' or 'overwrite' if concurrent "
                 f"writes are expected."
             )
-        
+
         if self.mode == WriteMode.IGNORE:
             # Silently skip commit if table was created during write
             logger.info(
@@ -782,7 +784,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
             commit_properties=self.delta_write_config.commit_properties,
             post_commithook_properties=self.delta_write_config.post_commithook_properties,
         )
-        
+
         # Atomic commit - all files become visible at once
         # This writes new _delta_log JSON file (e.g., 00000000000000000001.json)
         transaction.commit()

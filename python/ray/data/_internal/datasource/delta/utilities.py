@@ -4,8 +4,6 @@ Delta Lake utility functions for credential management and table operations.
 
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
-from ray.data._internal.util import _check_import
-
 if TYPE_CHECKING:
     from deltalake import DeltaTable
 
@@ -225,12 +223,12 @@ class AWSUtilities:
                     "AWS_SECRET_ACCESS_KEY": credentials.secret_key,
                     "AWS_REGION": session.region_name or "us-east-1",
                 }
-                
+
                 # Include session token only for temporary credentials
                 # (IAM role, STS, etc.) - not present for long-term credentials
                 if credentials.token:
                     storage_options["AWS_SESSION_TOKEN"] = credentials.token
-                    
+
                 return storage_options
         except Exception:
             # Handle import errors, network issues, or credential problems gracefully
