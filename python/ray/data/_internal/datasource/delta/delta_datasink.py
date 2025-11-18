@@ -5,7 +5,6 @@ Delta Lake datasink implementation with two-phase commit for ACID compliance.
 import json
 import logging
 import os
-import posixpath
 import time
 import urllib.parse
 import uuid
@@ -58,8 +57,6 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
     ):
         _check_import(self, module="deltalake", package="deltalake")
 
-        # Normalize and validate path
-        self.path = self._normalize_path(path)
         self.mode = self._validate_mode(mode)
         self.partition_cols = self._validate_partition_columns(partition_cols or [])
         self.schema = schema
@@ -68,49 +65,34 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         self._written_files: Set[str] = set()
         self._existing_table_at_start: Optional["DeltaTable"] = None
 
+        # Set up filesystem with retry support (matches _FileDatasink pattern)
+        data_context = DataContext.get_current()
+        paths, self.filesystem = _resolve_paths_and_filesystem(path, filesystem)
+        self.filesystem = RetryingPyFileSystem.wrap(
+            self.filesystem, retryable_errors=data_context.retried_io_errors
+        )
+        assert len(paths) == 1
+        self.path = paths[0]
+
         self.storage_options = get_storage_options(
             self.path, write_kwargs.get("storage_options")
         )
 
-        # Set up filesystem with retry support
-        data_context = DataContext.get_current()
-        if filesystem is None:
-            paths, self.filesystem = _resolve_paths_and_filesystem(self.path, None)
-            assert len(paths) == 1
-            self.path = paths[0]
-        else:
-            self.filesystem = filesystem
-        self.filesystem = RetryingPyFileSystem.wrap(
-            self.filesystem, retryable_errors=data_context.retried_io_errors
-        )
-
-    def _normalize_path(self, path: str) -> str:
-        """Normalize path and validate it's safe."""
-        normalized = posixpath.normpath(path).replace("\\", "/")
-        if ".." in normalized.split("/"):
-            raise ValueError(f"Path contains '..' which is not allowed: {path}")
-        return normalized
-
     def _validate_mode(self, mode: str) -> WriteMode:
         """Validate and return WriteMode."""
-        if mode not in ["append", "overwrite", "error", "ignore"]:
-            if mode == "merge":
-                raise ValueError(
-                    "Merge mode not supported in v1. Use 'append' or 'overwrite' modes."
-                )
-            raise ValueError(
-                f"Invalid mode '{mode}'. Supported: 'append', 'overwrite', 'error', 'ignore'"
-            )
+        valid_modes = ["append", "overwrite", "error", "ignore"]
+        if mode not in valid_modes:
+            raise ValueError(f"Invalid mode '{mode}'. Supported: {valid_modes}")
         return WriteMode(mode)
 
     def _validate_partition_columns(self, partition_cols: List[str]) -> List[str]:
-        """Validate partition column names are safe."""
+        """Validate partition column names."""
         if len(partition_cols) > 10:
             raise ValueError(
                 f"Too many partition columns ({len(partition_cols)}). Maximum is 10."
             )
         for col in partition_cols:
-            if not col or not isinstance(col, str):
+            if not isinstance(col, str) or not col:
                 raise ValueError(f"Invalid partition column name: {col}")
             if "/" in col or "\\" in col or ".." in col:
                 raise ValueError(
@@ -368,14 +350,10 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         return f"part-{task_idx:05d}-{block_idx:05d}-{unique_id}.parquet"
 
     def _validate_file_path(self, relative_path: str) -> None:
-        """Validate file path is safe and within table directory."""
-        # Normalize path
-        normalized = posixpath.normpath(relative_path).replace("\\", "/")
-        # Check for path traversal
-        if normalized.startswith("../") or "/../" in normalized:
+        """Validate file path is safe."""
+        if ".." in relative_path:
             raise ValueError(f"Invalid file path: {relative_path} (contains '..')")
-        # Check path length
-        if len(normalized) > 500:  # Reasonable limit
+        if len(relative_path) > 500:
             raise ValueError(f"File path too long: {relative_path}")
 
     def _build_partition_path(
