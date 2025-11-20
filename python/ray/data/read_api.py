@@ -4310,7 +4310,6 @@ def read_unity_catalog(
 @PublicAPI(stability="alpha")
 def read_delta(
     path: Union[str, List[str]],
-    version: Optional[int] = None,
     *,
     version: Optional[Union[int, str]] = None,
     storage_options: Optional[Dict[str, str]] = None,
@@ -4428,11 +4427,6 @@ def read_delta(
         version=version,
         storage_options=storage_options,
         partition_filters=partition_filters,
-    # Get the parquet file paths from the DeltaTable
-    paths = DeltaTable(path, version=version).file_uris()
-
-    return read_parquet(
-        paths,
         filesystem=filesystem,
         columns=columns,
         partitioning=partitioning,

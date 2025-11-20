@@ -23,29 +23,50 @@ def test_write_delta_basic(tmp_path):
     assert ds_read.count() == 100
 
 
-@pytest.mark.parametrize("mode", ["append", "overwrite", "error", "ignore"])
-def test_write_delta_modes(temp_delta_path, mode):
-    """Test all write modes."""
+def test_write_delta_append_mode(temp_delta_path):
+    """Test append mode."""
     ds1 = ray.data.range(50)
     ds1.write_delta(temp_delta_path, mode="append")
 
     ds2 = ray.data.range(30)
+    ds2.write_delta(temp_delta_path, mode="append")
 
-    if mode == "append":
-        ds2.write_delta(temp_delta_path, mode="append")
-        ds_read = ray.data.read_delta(temp_delta_path)
-        assert ds_read.count() == 80
-    elif mode == "overwrite":
-        ds2.write_delta(temp_delta_path, mode="overwrite")
-        ds_read = ray.data.read_delta(temp_delta_path)
-        assert ds_read.count() == 30
-    elif mode == "error":
-        with pytest.raises(ValueError, match="already exists"):
-            ds2.write_delta(temp_delta_path, mode="error")
-    elif mode == "ignore":
-        ds2.write_delta(temp_delta_path, mode="ignore")
-        ds_read = ray.data.read_delta(temp_delta_path)
-        assert ds_read.count() == 50
+    ds_read = ray.data.read_delta(temp_delta_path)
+    assert ds_read.count() == 80
+
+
+def test_write_delta_overwrite_mode(temp_delta_path):
+    """Test overwrite mode."""
+    ds1 = ray.data.range(50)
+    ds1.write_delta(temp_delta_path, mode="append")
+
+    ds2 = ray.data.range(30)
+    ds2.write_delta(temp_delta_path, mode="overwrite")
+
+    ds_read = ray.data.read_delta(temp_delta_path)
+    assert ds_read.count() == 30
+
+
+def test_write_delta_error_mode(temp_delta_path):
+    """Test error mode."""
+    ds1 = ray.data.range(50)
+    ds1.write_delta(temp_delta_path, mode="append")
+
+    ds2 = ray.data.range(30)
+    with pytest.raises(ValueError, match="already exists"):
+        ds2.write_delta(temp_delta_path, mode="error")
+
+
+def test_write_delta_ignore_mode(temp_delta_path):
+    """Test ignore mode."""
+    ds1 = ray.data.range(50)
+    ds1.write_delta(temp_delta_path, mode="append")
+
+    ds2 = ray.data.range(30)
+    ds2.write_delta(temp_delta_path, mode="ignore")
+
+    ds_read = ray.data.read_delta(temp_delta_path)
+    assert ds_read.count() == 50
 
 
 def test_write_delta_partitioning(temp_delta_path):
