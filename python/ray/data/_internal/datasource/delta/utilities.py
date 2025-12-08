@@ -113,12 +113,12 @@ def get_storage_options(
     if path.lower().startswith(("s3://", "s3a://")):
         try:
             auto_options = _get_aws_storage_options()
-        except ImportError:
+        except Exception:
             pass
     elif path.lower().startswith(("abfss://", "abfs://")):
         try:
             auto_options = _get_azure_storage_options()
-        except ImportError:
+        except Exception:
             pass
 
     return {**auto_options, **provided}

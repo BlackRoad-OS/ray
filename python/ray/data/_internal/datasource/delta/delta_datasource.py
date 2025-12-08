@@ -84,8 +84,6 @@ class DeltaDatasource(Datasource):
                 dt_kwargs["storage_options"] = self.storage_options
             if self.version is not None:
                 dt_kwargs["version"] = self.version
-            if self.filesystem is not None:
-                dt_kwargs["filesystem"] = self.filesystem
             self._delta_table = DeltaTable(self.path, **dt_kwargs)
             self._delta_table_version = self.version
             self._delta_table_storage_options = dict(self.storage_options)

@@ -4310,8 +4310,8 @@ def read_unity_catalog(
 @PublicAPI(stability="alpha")
 def read_delta(
     path: Union[str, List[str]],
-    *,
     version: Optional[Union[int, str]] = None,
+    *,
     storage_options: Optional[Dict[str, str]] = None,
     partition_filters: Optional[List[tuple]] = None,
     filesystem: Optional["pyarrow.fs.FileSystem"] = None,
