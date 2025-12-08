@@ -82,9 +82,15 @@ class DeltaDatasource(Datasource):
             dt_kwargs = {}
             if self.storage_options:
                 dt_kwargs["storage_options"] = self.storage_options
+            # DeltaTable constructor only accepts int version, not timestamp strings
+            # For timestamp strings, create table first then use load_as_version()
             if self.version is not None:
-                dt_kwargs["version"] = self.version
+                if isinstance(self.version, int):
+                    dt_kwargs["version"] = self.version
             self._delta_table = DeltaTable(self.path, **dt_kwargs)
+            # Handle timestamp string versions using load_as_version()
+            if self.version is not None and isinstance(self.version, str):
+                self._delta_table.load_as_version(self.version)
             self._delta_table_version = self.version
             self._delta_table_storage_options = dict(self.storage_options)
         return self._delta_table

@@ -661,7 +661,9 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
 
         self._validate_file_actions(all_file_actions)
 
-        if existing_table:
+        # Check IGNORE mode using table state at start time, not current state
+        # to maintain consistency with decision made in on_write_start()
+        if self._existing_table_at_start is not None:
             if self.mode == WriteMode.IGNORE:
                 self._cleanup_written_files(all_file_actions)
                 return
