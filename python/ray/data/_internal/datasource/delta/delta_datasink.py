@@ -993,11 +993,25 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
             raise ValueError(f"Unsupported PyArrow type for Delta Lake: {pa_type}")
 
     def on_write_failed(self, error: Exception) -> None:
-        """Handle write failure - cleanup orphaned files."""
+        """Handle write failure - attempt cleanup of orphaned files.
+
+        Note: In distributed execution, cleanup may be incomplete as file paths
+        are tracked in worker processes. Orphaned files may remain and require
+        manual cleanup.
+        """
         logger.error(
-            f"Delta write failed for {self.path}: {error}. Cleaning up uncommitted files."
+            f"Delta write failed for {self.path}: {error}. "
+            "Attempting cleanup of uncommitted files (may be incomplete in distributed execution)."
         )
+        # Attempt cleanup, but note that _written_files may be empty on driver
+        # in distributed execution since each worker has its own copy
+        cleaned_count = len(self._written_files)
         self._cleanup_written_files()
+        if cleaned_count == 0:
+            logger.warning(
+                f"No files cleaned up (driver has no record of written files). "
+                f"Orphaned files may exist at {self.path} and require manual cleanup."
+            )
 
     def _cleanup_written_files(
         self, file_actions: Optional[List["AddAction"]] = None
