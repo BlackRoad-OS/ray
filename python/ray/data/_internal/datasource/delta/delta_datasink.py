@@ -85,7 +85,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         self.write_kwargs = write_kwargs
         self._skip_write = False
         self._written_files: Set[str] = set()
-        self._existing_table_at_start: Optional["DeltaTable"] = None
+        self._table_existed_at_start: bool = False
 
         # Set up filesystem with retry support (matches _FileDatasink pattern)
         data_context = DataContext.get_current()
@@ -146,21 +146,18 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         _check_import(self, module="deltalake", package="deltalake")
 
         # Check if table exists at start time (for race condition detection)
-        self._existing_table_at_start = try_get_deltatable(
-            self.path, self.storage_options
-        )
+        existing_table = try_get_deltatable(self.path, self.storage_options)
+        self._table_existed_at_start = existing_table is not None
 
-        if self._existing_table_at_start:
-            self._validate_partition_columns_match_existing(
-                self._existing_table_at_start
-            )
+        if existing_table:
+            self._validate_partition_columns_match_existing(existing_table)
 
-        if self.mode == WriteMode.ERROR and self._existing_table_at_start:
+        if self.mode == WriteMode.ERROR and existing_table:
             raise ValueError(
                 f"Delta table already exists at {self.path}. Use mode='append' or 'overwrite'."
             )
 
-        if self.mode == WriteMode.IGNORE and self._existing_table_at_start:
+        if self.mode == WriteMode.IGNORE and existing_table:
             self._skip_write = True
         else:
             self._skip_write = False
@@ -649,7 +646,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
         existing_table = try_get_deltatable(self.path, self.storage_options)
 
         if (
-            self._existing_table_at_start is None
+            not self._table_existed_at_start
             and existing_table is not None
             and self.mode == WriteMode.ERROR
         ):
@@ -662,7 +659,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
 
         # Handle case where table was deleted between on_write_start and on_write_complete
         if (
-            self._existing_table_at_start is not None
+            self._table_existed_at_start
             and existing_table is None
             and self.mode == WriteMode.APPEND
         ):
@@ -676,10 +673,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
             if self.schema and not existing_table:
                 # For IGNORE mode, skip creation if table existed at start
                 # (even if it was deleted during write)
-                if (
-                    self.mode == WriteMode.IGNORE
-                    and self._existing_table_at_start is not None
-                ):
+                if self.mode == WriteMode.IGNORE and self._table_existed_at_start:
                     return
                 if self.mode == WriteMode.ERROR:
                     self._cleanup_written_files(all_file_actions)
@@ -693,7 +687,7 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
 
         # Check IGNORE mode using table state at start time, not current state
         # to maintain consistency with decision made in on_write_start()
-        if self._existing_table_at_start is not None:
+        if self._table_existed_at_start:
             if self.mode == WriteMode.IGNORE:
                 self._cleanup_written_files(all_file_actions)
                 return
