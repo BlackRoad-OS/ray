@@ -868,10 +868,12 @@ class DeltaDatasink(Datasink[List["AddAction"]]):
 
         self._validate_partition_columns_match_existing(existing_table)
         transaction_mode = "overwrite" if self.mode == WriteMode.OVERWRITE else "append"
+        # Convert PyArrow schema to Delta schema format for create_write_transaction
+        delta_schema = self._convert_schema_to_delta(existing_schema)
         existing_table.create_write_transaction(
             actions=file_actions,
             mode=transaction_mode,
-            schema=existing_table.schema(),
+            schema=delta_schema,
             partition_by=self.partition_cols or None,
             commit_properties=self.write_kwargs.get("commit_properties"),
             post_commithook_properties=self.write_kwargs.get(
