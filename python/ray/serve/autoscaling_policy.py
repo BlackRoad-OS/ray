@@ -282,8 +282,12 @@ def _apply_scaling_decision_smoothing(
 
         # Downscaling to zero is only allowed from 1 -> 0
         is_scaling_to_zero = curr_target_num_replicas == 1 and desired_num_replicas == 0
-        if is_scaling_to_zero and config.downscale_to_zero_delay_s is not None:
-            delay_s = config.downscale_to_zero_delay_s
+        if is_scaling_to_zero:
+            # Use downscale_to_zero_delay_s if set, otherwise fall back to downscale_delay_s
+            if config.downscale_to_zero_delay_s is not None:
+                delay_s = config.downscale_to_zero_delay_s
+            else:
+                delay_s = config.downscale_delay_s
         else:
             delay_s = config.downscale_delay_s
             # Ensure desired_num_replicas >= 1 for non-zero scaling cases

@@ -556,6 +556,31 @@ class TestApplyScalingDecisionSmoothing:
         assert decision_replicas == 0
         assert counter == 0
 
+    def test_scale_down_to_zero_without_special_delay(self):
+        """Test that 1->0 transition uses downscale_delay_s when downscale_to_zero_delay_s is None."""
+        from ray.serve.autoscaling_policy import _apply_scaling_decision_smoothing
+
+        downscale_delay_s = 60.0
+        wait_periods = int(downscale_delay_s / CONTROL_LOOP_INTERVAL_S)
+
+        # downscale_to_zero_delay_s is None (not set)
+        config = self._create_config(
+            downscale_delay_s=downscale_delay_s,
+            downscale_to_zero_delay_s=None,
+        )
+
+        # At the downscale delay threshold
+        decision_replicas, counter = _apply_scaling_decision_smoothing(
+            desired_num_replicas=0,
+            curr_target_num_replicas=1,
+            decision_counter=-(wait_periods),
+            config=config,
+        )
+
+        # Should scale to 0 using the regular downscale_delay_s
+        assert decision_replicas == 0
+        assert counter == 0
+
     def test_scale_down_enforces_min_one_for_non_zero_transition(self):
         """Test that scaling down from >1 enforces minimum of 1 replica."""
         from ray.serve.autoscaling_policy import _apply_scaling_decision_smoothing
