@@ -757,6 +757,13 @@ def test_with_column_trigonometric_operations(
             [2.0, 3.0, 4.0],
             "power_sqrt",
         ),
+        # Test modulo
+        pytest.param(
+            [{"x": 0}, {"x": 1}, {"x": 2}, {"x": 3}],
+            lambda: col("x") % 2,
+            [0, 1, 0, 1],
+            "mod",
+        ),
     ],
 )
 def test_with_column_arithmetic_operations(
@@ -767,7 +774,7 @@ def test_with_column_arithmetic_operations(
     test_id,
 ):
     """Test arithmetic helper expressions: negate, sign, power, abs."""
-    ds = ray.data.from_items(test_data)
+    ds = ray.data.from_items(test_data, override_num_blocks=1)
     expr = expr_factory()
     result_df = ds.with_column("result", expr).to_pandas()
 
@@ -775,7 +782,11 @@ def test_with_column_arithmetic_operations(
     expected_df = pd.DataFrame(test_data)
     expected_df["result"] = expected_results
 
-    assert rows_same(result_df, expected_df)
+    pd.testing.assert_frame_equal(
+        result_df.reset_index(drop=True),
+        expected_df.reset_index(drop=True),
+        check_dtype=False,
+    )
 
 
 @pytest.mark.skipif(
