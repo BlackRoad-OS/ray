@@ -768,7 +768,7 @@ def test_with_column_trigonometric_operations(
         pytest.param(
             [{"x": 0.0}, {"x": 1.0}, {"x": 2.0}, {"x": 3.0}],
             lambda: col("x") % 2,
-            [0., 1., 0., 1.],
+            [0.0, 1.0, 0.0, 1.0],
             "mod",
         ),
         # Test reverse modulo (literal % col)
