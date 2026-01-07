@@ -35,23 +35,138 @@ steps:
       HOSTTYPE: "x86_64"
       MANYLINUX_VERSION: "260103.868e54c"
 
-  - label: ":tapioca: build: wheel {{matrix}} (x86_64)"
-    key: linux_wheels
+  - name: ray-wheel-build
+    label: "wanda: wheel py{{matrix}} (x86_64)"
+    wanda: ci/docker/ray-wheel.wanda.yaml
+    matrix:
+      - "3.10"
+      - "3.11"
+      - "3.12"
+      - "3.13"
+    env:
+      PYTHON_VERSION: "{{matrix}}"
+      ARCH_SUFFIX: ""
+      HOSTTYPE: "x86_64"
+      MANYLINUX_VERSION: "260103.868e54c"
     tags:
       - release_wheels
       - linux_wheels
       - oss
-    instance_type: large
+    depends_on:
+      - ray-core-build
+      - ray-java-build
+      - ray-dashboard-build
+
+  - name: ray-cpp-core-build
+    label: "wanda: cpp core py{{matrix}} (x86_64)"
+    wanda: ci/docker/ray-cpp-core.wanda.yaml
+    matrix:
+      - "3.10"
+      - "3.11"
+      - "3.12"
+    env:
+      PYTHON_VERSION: "{{matrix}}"
+      ARCH_SUFFIX: ""
+      HOSTTYPE: "x86_64"
+      MANYLINUX_VERSION: "260103.868e54c"
+    tags:
+      - release_wheels
+      - oss
+
+  - name: ray-cpp-wheel-build
+    label: "wanda: cpp wheel py{{matrix}} (x86_64)"
+    wanda: ci/docker/ray-cpp-wheel.wanda.yaml
+    matrix:
+      - "3.10"
+      - "3.11"
+      - "3.12"
+    env:
+      PYTHON_VERSION: "{{matrix}}"
+      ARCH_SUFFIX: ""
+      HOSTTYPE: "x86_64"
+      MANYLINUX_VERSION: "260103.868e54c"
+    tags:
+      - release_wheels
+      - linux_wheels
+      - oss
+    depends_on:
+      - ray-core-build
+      - ray-cpp-core-build
+      - ray-java-build
+      - ray-dashboard-build
+
+  # Upload wheels to S3
+  # Gating: only on releases/* OR (master AND nightly)
+  - label: ":s3: upload: wheel py{{matrix}} (x86_64)"
+    key: linux_wheels_upload
+    if: build.branch =~ /^releases\// || (build.branch == "master" && build.env("RAYCI_SCHEDULE") == "nightly")
+    instance_type: small
     commands:
-      - bazel run //ci/ray_ci:build_in_docker -- wheel --python-version {{matrix}} --architecture x86_64 --upload
+      # Extract wheel from wanda image (Wanda cache in ECR)
+      - wanda_image="$RAYCI_WORK_REPO:$RAYCI_BUILD_ID-ray-wheel-py{{matrix}}"
+      - container_id=$(docker create $wanda_image)
+      - mkdir -p /tmp/wheels
+      - docker cp ${container_id}:/ /tmp/wheels/
+      - docker rm ${container_id}
+      - mkdir -p .whl
+      - mv /tmp/wheels/*.whl .whl/
+      - ./ci/build/copy_build_artifacts.sh wheel
     matrix:
       - "3.10"
       - "3.11"
       - "3.12"
       - "3.13"
     depends_on:
-      - manylinux-x86_64
-      - forge
+      - ray-wheel-build
+    tags:
+      - release_wheels
+      - skip-on-premerge
+
+  # Upload cpp wheels to S3
+  # Gating: only on releases/* OR (master AND nightly)
+  - label: ":s3: upload: cpp wheel py{{matrix}} (x86_64)"
+    key: linux_cpp_wheels_upload
+    if: build.branch =~ /^releases\// || (build.branch == "master" && build.env("RAYCI_SCHEDULE") == "nightly")
+    instance_type: small
+    commands:
+      # Extract cpp wheel from wanda image (Wanda cache in ECR)
+      - wanda_image="$RAYCI_WORK_REPO:$RAYCI_BUILD_ID-ray-cpp-wheel-py{{matrix}}"
+      - container_id=$(docker create $wanda_image)
+      - mkdir -p /tmp/wheels
+      - docker cp ${container_id}:/ /tmp/wheels/
+      - docker rm ${container_id}
+      - mkdir -p .whl
+      - mv /tmp/wheels/*.whl .whl/
+      - ./ci/build/copy_build_artifacts.sh wheel
+    matrix:
+      - "3.10"
+      - "3.11"
+      - "3.12"
+    depends_on:
+      - ray-cpp-wheel-build
+    tags:
+      - release_wheels
+      - skip-on-premerge
+
+  # Validate wheel can be extracted and installed (runs on PRs)
+  - label: ":mag: validate: wheel py{{matrix}} (x86_64)"
+    key: linux_wheels_validate
+    instance_type: small
+    commands:
+      - wanda_image="$RAYCI_WORK_REPO:$RAYCI_BUILD_ID-ray-wheel-py{{matrix}}"
+      - container_id=$(docker create $wanda_image)
+      - mkdir -p /tmp/wheels
+      - docker cp ${container_id}:/ /tmp/wheels/
+      - docker rm ${container_id}
+      - ls -la /tmp/wheels/*.whl
+      - pip install /tmp/wheels/*.whl
+      - python -c "import ray; print('ray version:', ray.__version__)"
+    matrix:
+      - "3.10"
+    depends_on:
+      - ray-wheel-build
+    tags:
+      - release_wheels
 
   - label: ":tapioca: build: jar"
     key: java_wheels
